@@ -1,56 +1,82 @@
-from flask import Flask, render_template, request, jsonify
+from flask import Flask, render_template, request, jsonify, session
 import google.generativeai as genai
 import os
-import re
+from datetime import datetime
 
 app = Flask(__name__)
+app.secret_key = os.environ.get('SECRET_KEY', 'your-secret-key-here')
 
-# Initialize Gemini API
-# Replace 'YOUR_API_KEY' with your actual Gemini API key
-genai.configure(api_key='AIzaSyB37-_m8iichYejeidCaziWsIAUOgApHd8')
-model = genai.GenerativeModel('gemini-2.0-flash')
+# Configure Gemini API
+GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY', '')
 
-def format_response(response):
-    # Add markdown formatting instructions to the model
-    formatted_response = response.text
-    
-    # Ensure code blocks are properly formatted
-    formatted_response = re.sub(
-        r'```(\w+)?\n(.*?)\n```',
-        r'```\1\n\2\n```',
-        formatted_response,
-        flags=re.DOTALL
-    )
-    
-    return formatted_response
+if GEMINI_API_KEY:
+    genai.configure(api_key=GEMINI_API_KEY)
+    model = genai.GenerativeModel('gemini-pro')
 
 @app.route('/')
-def home():
+def index():
+    if 'chat_history' not in session:
+        session['chat_history'] = []
     return render_template('index.html')
 
 @app.route('/chat', methods=['POST'])
 def chat():
     try:
-        user_message = request.json['message']
+        if not GEMINI_API_KEY:
+            return jsonify({
+                'error': 'API key not configured. Please set GEMINI_API_KEY environment variable.'
+            }), 400
         
-        # Add formatting instructions to the prompt
-        prompt = f"""Please provide a response to: {user_message}
-
-        Format your response using the following guidelines:
-        - Use **bold** for emphasis
-        - Use *italics* for technical terms
-        - Use proper markdown code blocks with language specification
-        - Use bullet points where appropriate
-        - Include line breaks for readability
-        - Format code examples in ```language\ncode\n``` blocks
-        """
+        data = request.get_json()
+        user_message = data.get('message', '')
         
-        response = model.generate_content(prompt)
-        formatted_response = format_response(response)
+        if not user_message:
+            return jsonify({'error': 'Message is required'}), 400
         
-        return jsonify({'response': formatted_response})
+        # Get chat history from session
+        if 'chat_history' not in session:
+            session['chat_history'] = []
+        
+        chat_history = session['chat_history']
+        
+        # Start a chat session with history
+        chat = model.start_chat(history=[
+            {'role': msg['role'], 'parts': [msg['content']]}
+            for msg in chat_history
+        ])
+        
+        # Send message and get response
+        response = chat.send_message(user_message)
+        bot_response = response.text
+        
+        # Update chat history
+        chat_history.append({
+            'role': 'user',
+            'content': user_message,
+            'timestamp': datetime.now().isoformat()
+        })
+        chat_history.append({
+            'role': 'model',
+            'content': bot_response,
+            'timestamp': datetime.now().isoformat()
+        })
+        
+        # Keep only last 20 messages to avoid session overflow
+        session['chat_history'] = chat_history[-20:]
+        session.modified = True
+        
+        return jsonify({
+            'response': bot_response,
+            'timestamp': datetime.now().isoformat()
+        })
+    
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+@app.route('/clear', methods=['POST'])
+def clear_history():
+    session['chat_history'] = []
+    return jsonify({'success': True})
+
 if __name__ == '__main__':
-    app.run(debug=True)
+    app.run(host='0.0.0.0', port=5000, debug=False)
