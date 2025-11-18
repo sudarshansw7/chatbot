@@ -4,79 +4,61 @@ import os
 from datetime import datetime
 
 app = Flask(__name__)
-app.secret_key = os.environ.get('SECRET_KEY', 'your-secret-key-here')
+app.secret_key = os.environ.get("SECRET_KEY", "your-secret-key-here")
 
 # Configure Gemini API
-GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY', '')
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 
 if GEMINI_API_KEY:
     genai.configure(api_key=GEMINI_API_KEY)
-    model = genai.GenerativeModel('gemini-pro')
+    # Use the correct model from Gemini 2.5 family
+    model = genai.GenerativeModel("models/gemini-2.5-flash")
+else:
+    model = None
 
-@app.route('/')
+@app.route("/")
 def index():
-    if 'chat_history' not in session:
-        session['chat_history'] = []
-    return render_template('index.html')
+    if "chat_history" not in session:
+        session["chat_history"] = []
+    return render_template("index.html")
 
-@app.route('/chat', methods=['POST'])
+@app.route("/chat", methods=["POST"])
 def chat():
     try:
         if not GEMINI_API_KEY:
-            return jsonify({
-                'error': 'API key not configured. Please set GEMINI_API_KEY environment variable.'
-            }), 400
-        
+            return jsonify({"error": "GEMINI_API_KEY not configured"}), 400
+
         data = request.get_json()
-        user_message = data.get('message', '')
-        
+        user_message = data.get("message", "").strip()
         if not user_message:
-            return jsonify({'error': 'Message is required'}), 400
-        
-        # Get chat history from session
-        if 'chat_history' not in session:
-            session['chat_history'] = []
-        
-        chat_history = session['chat_history']
-        
-        # Start a chat session with history
+            return jsonify({"error": "Message is required"}), 400
+
+        chat_history = session.get("chat_history", [])
+
         chat = model.start_chat(history=[
-            {'role': msg['role'], 'parts': [msg['content']]}
+            {"role": msg["role"], "parts": [msg["content"]]}
             for msg in chat_history
         ])
-        
-        # Send message and get response
-        response = chat.send_message(user_message)
+
+        response = chat.send_message([user_message])
         bot_response = response.text
-        
-        # Update chat history
-        chat_history.append({
-            'role': 'user',
-            'content': user_message,
-            'timestamp': datetime.now().isoformat()
-        })
-        chat_history.append({
-            'role': 'model',
-            'content': bot_response,
-            'timestamp': datetime.now().isoformat()
-        })
-        
-        # Keep only last 20 messages to avoid session overflow
-        session['chat_history'] = chat_history[-20:]
+
+        chat_history.append({"role": "user", "content": user_message, "timestamp": datetime.now().isoformat()})
+        chat_history.append({"role": "model", "content": bot_response, "timestamp": datetime.now().isoformat()})
+
+        session["chat_history"] = chat_history[-20:]
         session.modified = True
-        
-        return jsonify({
-            'response': bot_response,
-            'timestamp': datetime.now().isoformat()
-        })
-    
+
+        return jsonify({"response": bot_response, "timestamp": datetime.now().isoformat()})
+
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        return jsonify({"error": str(e)}), 500
 
-@app.route('/clear', methods=['POST'])
+@app.route("/clear", methods=["POST"])
 def clear_history():
-    session['chat_history'] = []
-    return jsonify({'success': True})
+    session["chat_history"] = []
+    return jsonify({"success": True})
 
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=False)
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=5000, debug=False)
+
