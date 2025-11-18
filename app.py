@@ -7,7 +7,7 @@ app = Flask(__name__)
 
 # Initialize Gemini API
 # Replace 'YOUR_API_KEY' with your actual Gemini API key
-genai.configure(api_key='AIzaSyCEiqlCAi8xNchk9Gn-VBJ0o_JvN8MMQoE')
+genai.configure(api_key='AIzaSyB37-_m8iichYejeidCaziWsIAUOgApHd8')
 model = genai.GenerativeModel('gemini-2.0-flash')
 
 def format_response(response):
